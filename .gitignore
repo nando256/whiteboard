@@ -1,0 +1,12 @@
+
+# Java / Paper plugin build artifacts
+*.class
+*.jar
+build/
+# IDE / editor
+.vscode/
+.idea/
+# OS junk
+.DS_Store
+Thumbs.db
+

@@ -1,0 +1,17 @@
+name: Whiteboard
+main: net.nando256.whiteboard.WhiteboardPlugin
+version: 0.1.0
+api-version: '1.21.9'
+authors: [ 'nando256' ]
+description: 'ItemFrameの地図を連結してホワイトボード化。/whiteboard でテキスト描画・HTML描画・背景色・Undo/Redo・ロック等に対応。'
+commands:
+  whiteboard:
+    description: 'Whiteboard base command'
+    usage: |
+      /whiteboard grid <WxH>
+      /whiteboard text <msg> [size] [#RRGGBB]
+      /whiteboard htext <html> [size] [#RRGGBB]
+      /whiteboard bg <#RRGGBB>
+      /whiteboard clear | undo | redo | lock <on|off> | font <family> [style]
+    aliases: [ wb ]
+
