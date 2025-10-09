@@ -1,4 +1,5 @@
 import io.papermc.hangarpublishplugin.model.Platforms
+import org.gradle.api.tasks.compile.JavaCompile
 
 plugins {
     java
@@ -7,7 +8,8 @@ plugins {
 }
 
 group = "net.nando256"
-version = "0.1.0"
+
+version = (findProperty("version.override") as String?) ?: "0.0.0-local"
 
 java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(21))
@@ -27,38 +29,28 @@ tasks.withType<JavaCompile> {
     options.release.set(21)
 }
 
+tasks.processResources {
+    filesMatching("plugin.yml") {
+        expand("version" to project.version)
+    }
+}
+
 hangarPublish {
     publications.register("plugin") {
-        version.set(project.version as String)
-        channel.set("Snapshot") // We're using the 'Snapshot' channel
-        // TODO: Edit the project name to match your Hangar project
         id.set("whiteboard")
+
+        version.set(project.version.toString())
+
+        channel.set(providers.gradleProperty("hangar.channel").orElse("Snapshot"))
+
         apiKey.set(System.getenv("HANGAR_API_TOKEN"))
+
         platforms {
-            // TODO: Use the correct platform(s) for your plugin
             register(Platforms.PAPER) {
-                // TODO: If you're using ShadowJar, replace the jar lines with the appropriate task:
-                //   jar.set(tasks.shadowJar.flatMap { it.archiveFile })
-                // Set the JAR file to upload
                 jar.set(tasks.jar.flatMap { it.archiveFile })
 
-                // Set platform versions from gradle.properties file
-                val versions: List<String> = (property("paperVersion") as String)
-                        .split(",")
-                        .map { it.trim() }
+                val versions = (property("paperVersion") as String).split(",").map { it.trim() }
                 platformVersions.set(versions)
-
-                // TODO: Configure your plugin dependencies, if any
-                dependencies {
-                    // Example for a dependency found on Hangar
-                    hangar("Maintenance") {
-                        required.set(false)
-                    }
-                    // Example for an external dependency
-                    url("Debuggery", "https://github.com/nando256/whiteboard/") {
-                        required.set(true)
-                    }
-                }
             }
         }
     }

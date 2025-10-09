@@ -1,9 +1,9 @@
 name: Whiteboard
 main: net.nando256.whiteboard.WhiteboardPlugin
-version: 0.1.0
+version: ${version}
 api-version: '1.21.9'
 authors: [ 'nando256' ]
-description: 'ItemFrameの地図を連結してホワイトボード化。/whiteboard でテキスト描画・HTML描画・背景色・Undo/Redo・ロック等に対応。'
+description: 'Whiteboard for Paper: stitch item-frame maps into a board; render text/HTML, backgrounds, undo/redo, locking, fonts.'
 commands:
   whiteboard:
     description: 'Whiteboard base command'
