@@ -674,6 +674,76 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     return best;
   }
 
+  private boolean placeBookOnLectern(Player player, ItemStack book, double radius) {
+    if (book == null) return false;
+    Location origin = player.getLocation();
+    World world = origin.getWorld();
+    if (world == null) return false;
+
+    int range = (int) Math.ceil(radius);
+    double bestDistSq = radius * radius;
+    Lectern bestLectern = null;
+
+    for (int dx = -range; dx <= range; dx++) {
+      for (int dy = -range; dy <= range; dy++) {
+        for (int dz = -range; dz <= range; dz++) {
+          Block block =
+              world.getBlockAt(
+                  origin.getBlockX() + dx, origin.getBlockY() + dy, origin.getBlockZ() + dz);
+          if (block.getType() != Material.LECTERN) continue;
+          Location blockCenter = block.getLocation().add(0.5, 0.5, 0.5);
+          double distSq = blockCenter.distanceSquared(origin);
+          if (distSq > bestDistSq) continue;
+
+          if (!(block.getState() instanceof Lectern lectern)) continue;
+          org.bukkit.inventory.Inventory inv = lectern.getInventory();
+          if (inv == null) continue;
+          ItemStack slot = inv.getItem(0);
+          if (!isLecternSlotEmpty(slot)) continue;
+
+          if (bestLectern == null || distSq < bestDistSq) {
+            bestDistSq = distSq;
+            bestLectern = lectern;
+          }
+        }
+      }
+    }
+
+    if (bestLectern == null) return false;
+
+    ItemStack toPlace = book.clone();
+    toPlace.setAmount(1);
+    bestLectern.getInventory().setItem(0, toPlace);
+    bestLectern.update();
+    return true;
+  }
+
+  private void removeBookFromHand(Player player, boolean mainHand) {
+    if (mainHand) {
+      ItemStack current = player.getInventory().getItemInMainHand();
+      if (!isBook(current)) return;
+      if (current.getAmount() > 1) {
+        current.setAmount(current.getAmount() - 1);
+        player.getInventory().setItemInMainHand(current);
+      } else {
+        player.getInventory().setItemInMainHand(null);
+      }
+    } else {
+      ItemStack current = player.getInventory().getItemInOffHand();
+      if (!isBook(current)) return;
+      if (current.getAmount() > 1) {
+        current.setAmount(current.getAmount() - 1);
+        player.getInventory().setItemInOffHand(current);
+      } else {
+        player.getInventory().setItemInOffHand(null);
+      }
+    }
+  }
+
+  private boolean isLecternSlotEmpty(ItemStack stack) {
+    return stack == null || stack.getType() == Material.AIR || stack.getAmount() <= 0;
+  }
+
   private BookPayload extractBookPayload(ItemStack book) {
     if (book == null) return null;
     if (!(book.getItemMeta() instanceof BookMeta meta)) return null;
@@ -1524,6 +1594,20 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       player.sendMessage("§e描画できる内容がありませんでした。");
     } else {
       player.sendMessage("§a本の内容をホワイトボードに反映しました。(/whiteboard undo で取り消し)");
+      if (!payload.fromLectern && held != null) {
+        boolean fromMainHand = held == player.getInventory().getItemInMainHand();
+        boolean fromOffHand =
+            !fromMainHand && held == player.getInventory().getItemInOffHand();
+        if (fromMainHand || fromOffHand) {
+          boolean placed = placeBookOnLectern(player, held, 5.0);
+          if (placed) {
+            removeBookFromHand(player, fromMainHand);
+            player.sendMessage("§7本を近くの所見台に設置しました。");
+          } else {
+            player.sendMessage("§e近くに空いている所見台が見つかりません。");
+          }
+        }
+      }
     }
     return true;
   }
