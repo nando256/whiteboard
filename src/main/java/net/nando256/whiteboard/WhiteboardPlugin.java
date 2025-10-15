@@ -75,10 +75,13 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   private final Map<Integer, String> mapToGroup = new HashMap<>(); // mapId  -> groupId
   private final Map<UUID, String> frameToGroup = new HashMap<>(); // ItemFrame UUID -> groupId
   private final Set<UUID> protectedFrames = new HashSet<>(); // 破壊・回転禁止の対象
+  private Messages messages;
 
   @Override
   public void onEnable() {
     getLogger().info("Whiteboard enabled (Grid, Wrap, Undo/Redo, Lock/Destroy)");
+    messages = new Messages(this);
+    messages.load("auto");
     File fontsDir = new File(getDataFolder(), "fonts");
     if (!fontsDir.exists()) fontsDir.mkdirs();
     loadCustomFonts(fontsDir);
@@ -168,7 +171,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           return true;
       }
     } catch (Throwable t) {
-      p.sendMessage("§cエラー：サーバーログを確認してください。");
+      messages.send(p, "error.generic");
       t.printStackTrace();
       return true;
     }
@@ -177,8 +180,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   private boolean handleGridCommand(Player p, String[] subArgs) {
     if (subArgs.length < 1
         || !GRID_SIZE_PATTERN.matcher(subArgs[0].toLowerCase(Locale.ROOT)).matches()) {
-      p.sendMessage("§e/whiteboard grid <WxH>");
-      p.sendMessage("§7左上にしたい額縁を狙って実行（必ず [1,1] になります）");
+      messages.send(p, "cmd.grid.usage");
+      messages.send(p, "cmd.grid.tip");
       return true;
     }
 
@@ -188,7 +191,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
     ItemFrame topLeft = rayItemFrame(p, 5.0);
     if (topLeft == null) {
-      p.sendMessage("§c左上にしたい額縁を狙ってください。");
+      messages.send(p, "error.targetFrame");
       return true;
     }
     createBoardFromFrame(p, topLeft, width, height, false);
@@ -198,8 +201,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   private BoardGroup createBoardFromFrame(
       Player p, ItemFrame topLeft, int width, int height, boolean fromBook) {
     if (topLeft == null) {
-      if (p != null)
-        p.sendMessage("§c左上にしたい額縁を狙ってください。");
+      if (p != null) messages.send(p, "error.targetFrame");
       return null;
     }
 
@@ -222,7 +224,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       offsets.add(frameBlockCenter(frame).toVector().subtract(base));
     }
     if (candidates.isEmpty()) {
-      if (p != null) p.sendMessage("§c周囲に額縁が見つかりません。");
+      if (p != null) messages.send(p, "error.noFrames");
       return null;
     }
 
@@ -230,7 +232,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         resolveGridOrientation(
             width, height, baseLoc, topLeft, candidates, offsets, rightBase, downBase);
     if (assembly == null) {
-      if (p != null) p.sendMessage("§c不足: 必要な位置に額縁が見つかりませんでした。");
+      if (p != null) messages.send(p, "error.missingFrames");
       return null;
     }
     ItemFrame[][] grid = assembly.tiles;
@@ -244,13 +246,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Location center = computeFrameCenter(baseLoc, right, down, x, y);
         ItemFrame created = ensureFrameExists(world, center, face);
         if (created == null) {
-          if (p != null)
-            p.sendMessage(
-                "§c("
-                    + (x + 1)
-                    + ","
-                    + (y + 1)
-                    + ") に額縁を設置できませんでした。壁となるブロックが必要です。");
+          if (p != null) messages.send(p, "error.autoPlace", x + 1, y + 1);
           return null;
         }
         grid[y][x] = created;
@@ -302,14 +298,12 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
     if (p != null) {
       if (fromBook) {
-        p.sendMessage("§aホワイトボードを初期化しました: " + width + "x" + height + "（本の指示）");
+        messages.send(p, "board.init.book", width, height);
       } else {
-        p.sendMessage("§aグリッドを設定: " + width + "x" + height + "（左上が[1,1]、ロック=ON）");
-        p.sendMessage(
-            "§7テキスト: /whiteboard text, HTML: /whiteboard htext, 背景: /whiteboard bg, クリア: /whiteboard clear");
+        messages.send(p, "board.init.command", width, height);
+        messages.send(p, "board.help.commands");
       }
-      if (autoPlaced > 0)
-        p.sendMessage("§7不足していた額縁を " + autoPlaced + " 枚自動配置しました。");
+      if (autoPlaced > 0) messages.send(p, "board.autoPlaced", autoPlaced);
     }
 
     return group;
@@ -342,7 +336,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     if (fromBook) {
       ParsedBookCommand parsed = parseBookArguments(subArgs, htmlMode);
       if (!parsed.extraTokens.isEmpty()) {
-        p.sendMessage("§e未解釈の引数を無視しました: " + String.join(", ", parsed.extraTokens));
+        messages.send(p, "book.extraTokens", String.join(", ", parsed.extraTokens));
       }
 
       BookPayload payload = readBookPayload(p);
@@ -351,12 +345,12 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       RenderMode mode =
           payload.explicitMode ? payload.mode : RenderMode.HTML; // default to HTML when unspecified
       if (!payload.explicitMode && !htmlMode && mode == RenderMode.HTML) {
-        p.sendMessage("§7本の内容をHTMLとして描画します。（先頭に [text] でプレーン表示に切り替え）");
+        messages.send(p, "book.html.defaultMode");
       }
 
       if (payload.clearBefore) {
         int cleared = clearGroupTexts(group);
-        p.sendMessage("§7ブック指示によりボードをクリアしました。（" + cleared + " 枚）");
+        messages.send(p, "book.clear", cleared);
       }
 
       int resolvedSize =
@@ -390,9 +384,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
                   resolvedGy,
                   resolvedLineH);
       if (added == 0) {
-        p.sendMessage("§e追加できるテキストが見つかりませんでした。");
+        messages.send(p, "book.noText");
       } else {
-        p.sendMessage("§a" + added + " 要素を追加しました。(/whiteboard undo で取り消し)");
+        messages.send(p, "book.added", added);
       }
       return true;
     }
@@ -427,9 +421,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
       int added = renderHtmlText(group, html, size, color, gx, gy, customLineHeight);
       if (added == 0) {
-        p.sendMessage("§eHTML解析の結果、描画対象がありませんでした。");
+        messages.send(p, "book.html.empty");
       } else {
-        p.sendMessage("§aHTMLテキストを追加しました。(/whiteboard undo で取り消し)");
+        messages.send(p, "book.html.added");
       }
       return true;
     } else {
@@ -446,29 +440,29 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       group.redo.clear();
       group.undo.push(action);
 
-      p.sendMessage("§a文字を追加しました。(/whiteboard undo で取り消し)");
+      messages.send(p, "book.text.added");
       return true;
     }
   }
 
   private void sendTextUsage(Player p, boolean htmlMode) {
     if (htmlMode) {
-      p.sendMessage("§e/whiteboard htext <html> <size> <x> <y> [lineH]");
-      p.sendMessage("§e/whiteboard htext book <size> <x> <y> [lineH]");
-      p.sendMessage("§7※色はHTMLの <font color=\"...\"> または style=\"color:\" で指定できます。");
-      p.sendMessage("§7※book 版は引数省略可（size=16, color=黒, 座標=0,0）。");
-      p.sendMessage("§7※本の先頭に [text] / [plain] を置くとプレーン表示を強制できます。");
+      messages.send(p, "usage.htext");
+      messages.send(p, "usage.htext.book");
+      messages.send(p, "usage.htext.colorTip");
+      messages.send(p, "usage.htext.bookTip");
+      messages.send(p, "usage.book.modeTip");
     } else {
-      p.sendMessage("§e/whiteboard text <msg> <size> <#RRGGBB> <x> <y>");
-      p.sendMessage("§e/whiteboard text book <size> <#RRGGBB> <x> <y> [lineH]");
-      p.sendMessage("§7※[text] / [plain]、[html] / [htext] で本の描画モードを指定できます。");
-      p.sendMessage("§7※book 版は size/color/x/y を省略すると 16,黒,0,0 を使います。");
+      messages.send(p, "usage.text");
+      messages.send(p, "usage.text.book");
+      messages.send(p, "usage.text.modeTip");
+      messages.send(p, "usage.text.defaults");
     }
   }
 
   private boolean handleBackgroundCommand(Player p, String[] subArgs) {
     if (subArgs.length < 1) {
-      p.sendMessage("§e/whiteboard bg <#RRGGBB>");
+      messages.send(p, "usage.bg");
       return true;
     }
     BoardGroup group = requireGroupBySight(p);
@@ -485,7 +479,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         count++;
       }
     }
-    p.sendMessage("§a背景色を " + subArgs[0] + " に変更しました。（" + count + " 枚）");
+    messages.send(p, "bg.changed", subArgs[0], count);
     return true;
   }
 
@@ -493,7 +487,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
     int cleared = clearGroupTexts(group);
-    p.sendMessage("§a連結全体のテキストを消去しました（" + cleared + " 枚）。背景は保持します。");
+    messages.send(p, "board.cleared", cleared);
     return true;
   }
 
@@ -501,14 +495,14 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
     if (group.undo.isEmpty()) {
-      p.sendMessage("§e取り消す操作がありません。");
+      messages.send(p, "undo.none");
       return true;
     }
 
     TextAction action = group.undo.pop();
     removeAction(group, action.id);
     group.redo.push(action);
-    p.sendMessage("§a直前の描画を取り消しました。");
+    messages.send(p, "undo.done");
     return true;
   }
 
@@ -516,14 +510,14 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
     if (group.redo.isEmpty()) {
-      p.sendMessage("§eやり直す操作がありません。");
+      messages.send(p, "redo.none");
       return true;
     }
 
     TextAction action = group.redo.pop();
     for (TextAtom atom : action.atoms) applyTextAtom(group, atom, action.id);
     group.undo.push(action);
-    p.sendMessage("§a取り消しをやり直しました。");
+    messages.send(p, "redo.done");
     return true;
   }
 
@@ -562,7 +556,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   private boolean handleLockCommand(Player p, String[] subArgs) {
     if (subArgs.length < 1
         || !(subArgs[0].equalsIgnoreCase("on") || subArgs[0].equalsIgnoreCase("off"))) {
-      p.sendMessage("§e/whiteboard lock <on|off>");
+      messages.send(p, "cmd.lock.usage");
       return true;
     }
 
@@ -571,13 +565,13 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
     boolean on = subArgs[0].equalsIgnoreCase("on");
     applyGroupLock(group, on);
-    p.sendMessage("§aロックを " + (on ? "ON" : "OFF") + " にしました。");
+    messages.send(p, "lock.state", on ? "ON" : "OFF");
     return true;
   }
 
   private boolean handleFontCommand(Player p, String[] subArgs) {
     if (subArgs.length < 1) {
-      p.sendMessage("§e/whiteboard font <family> [PLAIN|BOLD|ITALIC]");
+      messages.send(p, "usage.font");
       return true;
     }
 
@@ -588,7 +582,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     int style = parseFontStyle(subArgs.length >= 2 ? subArgs[1] : "PLAIN");
     Font baseFont = new Font(family, style, 16);
     if (!fontFamilyExists(family))
-      p.sendMessage("§e注意: \"" + family + "\" が見つからない可能性があります。");
+      messages.send(p, "font.warn", family);
 
     for (int y = 0; y < group.H; y++) {
       for (int x = 0; x < group.W; x++) {
@@ -598,23 +592,23 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         renderer.requestRedraw();
       }
     }
-    p.sendMessage("§aベースフォントを \"" + baseFont.getFamily() + "\" に変更しました。");
+    messages.send(p, "font.changed", baseFont.getFamily());
     return true;
   }
 
   private void sendHelp(Player p) {
-    p.sendMessage("§e/whiteboard grid <WxH> §7…額縁を連結してホワイトボード化");
-    p.sendMessage("§e/whiteboard text <msg> <size> <#RRGGBB> <x> <y>");
-    p.sendMessage("§e/whiteboard text book <size> <#RRGGBB> <x> <y> [lineH]");
-    p.sendMessage("§e/whiteboard htext <html> <size> <#RRGGBB> <x> <y> [lineH]");
-    p.sendMessage("§e/whiteboard htext book <size> <#RRGGBB> <x> <y> [lineH]");
-    p.sendMessage("§e/whiteboard bg <#RRGGBB> §7…背景変更");
-    p.sendMessage("§e/whiteboard clear §7…連結文字を全消去");
-    p.sendMessage("§e/whiteboard undo / redo §7…直前の操作を取り消し / やり直し");
-    p.sendMessage("§e/whiteboard lock <on|off>");
-    p.sendMessage("§e/whiteboard font <family> [style]");
-    p.sendMessage("§7※本を手に持って額縁を右クリックすると即時に反映されます。");
-    p.sendMessage("§7※本の先頭で [size 20], [color #ff0], [pos 10 40], [line 18], [clear] などを指定可能。");
+    messages.send(p, "help.grid");
+    messages.send(p, "help.text");
+    messages.send(p, "help.text.book");
+    messages.send(p, "help.htext");
+    messages.send(p, "help.htext.book");
+    messages.send(p, "help.bg");
+    messages.send(p, "help.clear");
+    messages.send(p, "help.undo");
+    messages.send(p, "help.lock");
+    messages.send(p, "help.font");
+    messages.send(p, "help.tip.quick");
+    messages.send(p, "help.tip.directives");
   }
 
   private ItemStack findBookInHand(Player p) {
@@ -650,19 +644,20 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     }
 
     if (source == null) {
-      p.sendMessage("§c本を手に持つか、近くの所見台に本を設置してください。");
+      messages.send(p, "error.noBook");
       return null;
     }
 
     BookPayload payload = extractBookPayload(source);
     if (payload == null || payload.text.isEmpty()) {
-      p.sendMessage("§e本に内容がありません。");
+      messages.send(p, "error.emptyBook");
       return null;
     }
 
     if (lecternHit != null) {
       double dist = Math.sqrt(lecternHit.distanceSq);
-      p.sendMessage(String.format(Locale.ROOT, "§7所見台の本を読み込みました（%.1fm）。", dist));
+      double meters = Math.round(dist * 10.0) / 10.0;
+      messages.send(p, "info.lecternLoaded", String.format(Locale.ROOT, "%.1f", meters));
       payload = payload.withLectern(lecternHit.distanceSq);
     }
     return payload;
@@ -1556,12 +1551,12 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     if (view == null) return null;
     String gid = mapToGroup.get(view.getId());
     if (gid == null) {
-      p.sendMessage("§cこの額縁は連結ボードではありません。/whiteboard grid を先に実行。");
+      messages.send(p, "error.notBoard");
       return null;
     }
     BoardGroup g = groups.get(gid);
     if (g == null || g.baseTopLeft == null) {
-      p.sendMessage("§cグループ情報が見つかりません。");
+      messages.send(p, "error.groupMissing");
       return null;
     }
     return g;
@@ -1571,13 +1566,13 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     if (frame == null
         || frame.getItem() == null
         || frame.getItem().getType() != Material.FILLED_MAP) {
-      p.sendMessage("§c地図が入った額縁を狙ってください。");
+      messages.send(p, "error.targetMap");
       return null;
     }
     MapMeta mm = (MapMeta) frame.getItem().getItemMeta();
     MapView view = mm.getMapView();
     if (view == null) {
-      p.sendMessage("§cMapView を取得できませんでした。");
+      messages.send(p, "error.mapView");
       return null;
     }
     return view;
@@ -1658,7 +1653,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
     if (payload.clearBefore) {
       int cleared = clearGroupTexts(group);
-      player.sendMessage("§7ブック指示によりボードをクリアしました。（" + cleared + " 枚）");
+      messages.send(player, "book.clear", cleared);
     }
 
     int size =
@@ -1678,9 +1673,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
             : renderHtmlText(group, payload.text, size, color, gx, gy, lineHeight);
 
     if (added == 0) {
-      player.sendMessage("§e描画できる内容がありませんでした。");
+      messages.send(player, "book.noneRendered");
     } else {
-      player.sendMessage("§a本の内容をホワイトボードに反映しました。(/whiteboard undo で取り消し)");
+      messages.send(player, "book.applied");
       if (!payload.fromLectern && held != null) {
         boolean fromMainHand = held == player.getInventory().getItemInMainHand();
         boolean fromOffHand =
@@ -1689,9 +1684,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           boolean placed = placeBookOnLectern(player, held, 5.0);
           if (placed) {
             removeBookFromHand(player, fromMainHand);
-            player.sendMessage("§7本を近くの所見台に設置しました。");
+            messages.send(player, "lectern.placed");
           } else {
-            player.sendMessage("§e近くに空いている所見台が見つかりません。");
+            messages.send(player, "lectern.notFound");
           }
         }
       }
