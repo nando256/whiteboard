@@ -31,15 +31,24 @@ Whiteboard lets players place a board on item frames and push book text onto it 
    /wb grid 3x2
    ```
 3. Write in a **writable book**, hold it, and right-click the board to render.
-   * Book directives let you control setup without commands. Example first page:
+   * Book directives let you control setup without commands:
+
+     | Directive            | Effect                                                             |
+     |---------------------|---------------------------------------------------------------------|
+     | `[boardsize WxH]`   | Create/reset a board using the clicked frame as the top-left tile.  |
+     | `[lock on/off]`     | Lock (default) or unlock the board after creation/updates.          |
+     | `[size N]`          | Override text size (8–64).                                          |
+     | `[line N]`          | Set line height when rendering wrapped/global text.                 |
+     | `[pos X Y]`         | Offset drawing position. `[xy …]` / `[offset …]` also work.         |
+     | `[color #RRGGBB]`   | Change text colour (CSS names or hex).                              |
+     | `[clear]`           | Clear existing text before applying the book.                       |
+
+     Example first page:
 
      ```
-     [boardsize 7x4] [clear] [lock off]
-     [text 18] Hello Whiteboard!
+     [boardsize 7x4] [lock off] [clear]
+     [size 18] [color #ffaa00] Hello Whiteboard!
      ```
-
-     `boardsize` creates (or resets) a board using the frame you right-clicked as the top-left corner.
-     Add `lock off` to leave the board unlocked; omit it or use `lock on` to keep protection enabled.
 
 ### Commands
 
