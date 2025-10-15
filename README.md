@@ -31,6 +31,14 @@ Whiteboard lets players place a board on item frames and push book text onto it 
    /wb grid 3x2
    ```
 3. Write in a **writable book**, hold it, and right-click the board to render.
+   * Book directives let you control setup without commands. Example first page:
+
+     ```
+     [boardsize 7x4] [clear]
+     [text 18] Hello Whiteboard!
+     ```
+
+     `boardsize` creates (or resets) a board using the frame you right-clicked as the top-left corner.
 
 ### Commands
 

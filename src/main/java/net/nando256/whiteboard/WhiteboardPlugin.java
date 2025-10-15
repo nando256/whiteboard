@@ -191,6 +191,17 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       p.sendMessage("§c左上にしたい額縁を狙ってください。");
       return true;
     }
+    createBoardFromFrame(p, topLeft, width, height, false);
+    return true;
+  }
+
+  private BoardGroup createBoardFromFrame(
+      Player p, ItemFrame topLeft, int width, int height, boolean fromBook) {
+    if (topLeft == null) {
+      if (p != null)
+        p.sendMessage("§c左上にしたい額縁を狙ってください。");
+      return null;
+    }
 
     BlockFace face = topLeft.getFacing();
     Location baseLoc = frameBlockCenter(topLeft);
@@ -211,16 +222,16 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       offsets.add(frameBlockCenter(frame).toVector().subtract(base));
     }
     if (candidates.isEmpty()) {
-      p.sendMessage("§c周囲に額縁が見つかりません。");
-      return true;
+      if (p != null) p.sendMessage("§c周囲に額縁が見つかりません。");
+      return null;
     }
 
     GridAssembly assembly =
         resolveGridOrientation(
             width, height, baseLoc, topLeft, candidates, offsets, rightBase, downBase);
     if (assembly == null) {
-      p.sendMessage("§c不足: 必要な位置に額縁が見つかりませんでした。");
-      return true;
+      if (p != null) p.sendMessage("§c不足: 必要な位置に額縁が見つかりませんでした。");
+      return null;
     }
     ItemFrame[][] grid = assembly.tiles;
     Vector right = assembly.right;
@@ -233,13 +244,14 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Location center = computeFrameCenter(baseLoc, right, down, x, y);
         ItemFrame created = ensureFrameExists(world, center, face);
         if (created == null) {
-          p.sendMessage(
-              "§c("
-                  + (x + 1)
-                  + ","
-                  + (y + 1)
-                  + ") に額縁を設置できませんでした。壁となるブロックが必要です。");
-          return true;
+          if (p != null)
+            p.sendMessage(
+                "§c("
+                    + (x + 1)
+                    + ","
+                    + (y + 1)
+                    + ") に額縁を設置できませんでした。壁となるブロックが必要です。");
+          return null;
         }
         grid[y][x] = created;
         autoPlaced++;
@@ -286,11 +298,19 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       }
     }
 
-    p.sendMessage("§aグリッドを設定: " + width + "x" + height + "（左上が[1,1]、ロック=ON）");
-    p.sendMessage("§7テキスト: /whiteboard text, HTML: /whiteboard htext, 背景: /whiteboard bg, クリア: /whiteboard clear");
-    if (autoPlaced > 0)
-      p.sendMessage("§7不足していた額縁を " + autoPlaced + " 枚自動配置しました。");
-    return true;
+    if (p != null) {
+      if (fromBook) {
+        p.sendMessage("§aホワイトボードを初期化しました: " + width + "x" + height + "（本の指示）");
+      } else {
+        p.sendMessage("§aグリッドを設定: " + width + "x" + height + "（左上が[1,1]、ロック=ON）");
+        p.sendMessage(
+            "§7テキスト: /whiteboard text, HTML: /whiteboard htext, 背景: /whiteboard bg, クリア: /whiteboard clear");
+      }
+      if (autoPlaced > 0)
+        p.sendMessage("§7不足していた額縁を " + autoPlaced + " 枚自動配置しました。");
+    }
+
+    return group;
   }
 
   private boolean handleTextCommand(Player p, String[] subArgs, boolean htmlMode) {
@@ -763,7 +783,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         directives.gx,
         directives.gy,
         directives.lineHeight,
-        directives.clearBefore);
+        directives.clearBefore,
+        directives.boardWidth,
+        directives.boardHeight);
   }
 
   private List<String> collectBookPages(BookMeta meta) {
@@ -835,7 +857,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   }
 
   private BookDirectives parseBookDirectives(String content) {
-    if (content == null) return new BookDirectives("", null, null, null, null, null, false);
+    if (content == null) return new BookDirectives("", null, null, null, null, null, false, null, null);
     String working = content.stripLeading();
     Integer size = null;
     Color color = null;
@@ -843,6 +865,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     Integer gy = null;
     Integer lineHeight = null;
     boolean clearBefore = false;
+    Integer boardWidth = null;
+    Integer boardHeight = null;
 
     while (true) {
       String trimmed = working.stripLeading();
@@ -890,6 +914,13 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           gy = pos[1];
           matched = true;
         }
+      } else if (lower.startsWith("boardsize")) {
+        Integer[] dims = parseBoardSizeToken(token);
+        if (dims != null) {
+          boardWidth = Math.max(1, dims[0]);
+          boardHeight = Math.max(1, dims[1]);
+          matched = true;
+        }
       }
 
       if (matched) {
@@ -898,7 +929,16 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         break;
       }
     }
-    return new BookDirectives(working.stripLeading(), size, color, gx, gy, lineHeight, clearBefore);
+    return new BookDirectives(
+        working.stripLeading(),
+        size,
+        color,
+        gx,
+        gy,
+        lineHeight,
+        clearBefore,
+        boardWidth,
+        boardHeight);
   }
 
   private Integer parseFirstInt(String token) {
@@ -929,6 +969,25 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       }
     }
     return new Integer[] {x, y};
+  }
+
+  private Integer[] parseBoardSizeToken(String token) {
+    java.util.regex.Matcher matcher = INT_PATTERN.matcher(token);
+    if (!matcher.find()) return null;
+    Integer w;
+    Integer h;
+    try {
+      w = Math.max(1, Integer.parseInt(matcher.group()));
+    } catch (NumberFormatException e) {
+      return null;
+    }
+    if (!matcher.find()) return null;
+    try {
+      h = Math.max(1, Integer.parseInt(matcher.group()));
+    } catch (NumberFormatException e) {
+      return null;
+    }
+    return new Integer[] {w, h};
   }
 
   private ParsedBookCommand parseBookArguments(String[] subArgs, boolean htmlMode) {
@@ -1563,11 +1622,14 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     ItemStack held = findBookInHand(player);
     if (!isBook(held)) return false;
 
-    BoardGroup group = groupFromFrame(frame);
-    if (group == null) return false;
-
     BookPayload payload = readBookPayload(player, held);
     if (payload == null) return true; // エラーメッセージは内部で表示済み
+
+    BoardGroup group = groupFromFrame(frame);
+    if (group == null && payload.boardWidth != null && payload.boardHeight != null) {
+      group = createBoardFromFrame(player, frame, payload.boardWidth, payload.boardHeight, true);
+    }
+    if (group == null) return false;
 
     if (payload.clearBefore) {
       int cleared = clearGroupTexts(group);
@@ -1847,6 +1909,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     final Integer gy;
     final Integer lineHeight;
     final boolean clearBefore;
+    final Integer boardWidth;
+    final Integer boardHeight;
 
     BookDirectives(
         String content,
@@ -1855,7 +1919,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Integer gx,
         Integer gy,
         Integer lineHeight,
-        boolean clearBefore) {
+        boolean clearBefore,
+        Integer boardWidth,
+        Integer boardHeight) {
       this.content = content;
       this.size = size;
       this.color = color;
@@ -1863,6 +1929,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       this.gy = gy;
       this.lineHeight = lineHeight;
       this.clearBefore = clearBefore;
+      this.boardWidth = boardWidth;
+      this.boardHeight = boardHeight;
     }
   }
 
@@ -1886,6 +1954,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     final Integer gyOverride;
     final Integer lineHeightOverride;
     final boolean clearBefore;
+    final Integer boardWidth;
+    final Integer boardHeight;
     final boolean fromLectern;
     final double distanceSq;
 
@@ -1898,7 +1968,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Integer gxOverride,
         Integer gyOverride,
         Integer lineHeightOverride,
-        boolean clearBefore) {
+        boolean clearBefore,
+        Integer boardWidth,
+        Integer boardHeight) {
       this(
           text,
           mode,
@@ -1909,6 +1981,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           gyOverride,
           lineHeightOverride,
           clearBefore,
+          boardWidth,
+          boardHeight,
           false,
           0.0);
     }
@@ -1923,6 +1997,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Integer gyOverride,
         Integer lineHeightOverride,
         boolean clearBefore,
+        Integer boardWidth,
+        Integer boardHeight,
         boolean fromLectern,
         double distanceSq) {
       this.text = text;
@@ -1934,6 +2010,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       this.gyOverride = gyOverride;
       this.lineHeightOverride = lineHeightOverride;
       this.clearBefore = clearBefore;
+      this.boardWidth = boardWidth;
+      this.boardHeight = boardHeight;
       this.fromLectern = fromLectern;
       this.distanceSq = distanceSq;
     }
@@ -1949,6 +2027,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           gyOverride,
           lineHeightOverride,
           clearBefore,
+          boardWidth,
+          boardHeight,
           true,
           distSq);
     }
