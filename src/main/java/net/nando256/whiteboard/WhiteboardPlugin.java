@@ -298,6 +298,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       }
     }
 
+    applyGroupLock(group, true);
+
     if (p != null) {
       if (fromBook) {
         p.sendMessage("§aホワイトボードを初期化しました: " + width + "x" + height + "（本の指示）");
@@ -541,6 +543,22 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     return cleared;
   }
 
+  private void applyGroupLock(BoardGroup group, boolean on) {
+    if (group == null) return;
+    group.locked = on;
+    for (int y = 0; y < group.H; y++) {
+      for (int x = 0; x < group.W; x++) {
+        UUID id = group.frames[y][x];
+        if (id == null) continue;
+        if (on) {
+          protectedFrames.add(id);
+        } else {
+          protectedFrames.remove(id);
+        }
+      }
+    }
+  }
+
   private boolean handleLockCommand(Player p, String[] subArgs) {
     if (subArgs.length < 1
         || !(subArgs[0].equalsIgnoreCase("on") || subArgs[0].equalsIgnoreCase("off"))) {
@@ -552,15 +570,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     if (group == null) return true;
 
     boolean on = subArgs[0].equalsIgnoreCase("on");
-    group.locked = on;
-    for (int y = 0; y < group.H; y++) {
-      for (int x = 0; x < group.W; x++) {
-        UUID id = group.frames[y][x];
-        if (id == null) continue;
-        if (on) protectedFrames.add(id);
-        else protectedFrames.remove(id);
-      }
-    }
+    applyGroupLock(group, on);
     p.sendMessage("§aロックを " + (on ? "ON" : "OFF") + " にしました。");
     return true;
   }
@@ -785,7 +795,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         directives.lineHeight,
         directives.clearBefore,
         directives.boardWidth,
-        directives.boardHeight);
+        directives.boardHeight,
+        directives.lockOn);
   }
 
   private List<String> collectBookPages(BookMeta meta) {
@@ -857,7 +868,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   }
 
   private BookDirectives parseBookDirectives(String content) {
-    if (content == null) return new BookDirectives("", null, null, null, null, null, false, null, null);
+    if (content == null) return new BookDirectives("", null, null, null, null, null, false, null, null, null);
     String working = content.stripLeading();
     Integer size = null;
     Color color = null;
@@ -867,6 +878,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     boolean clearBefore = false;
     Integer boardWidth = null;
     Integer boardHeight = null;
+    Boolean lockOn = null;
 
     while (true) {
       String trimmed = working.stripLeading();
@@ -921,6 +933,15 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           boardHeight = Math.max(1, dims[1]);
           matched = true;
         }
+      } else if (lower.startsWith("lock")) {
+        String arg = token.replaceFirst("(?i)lock", "").trim().toLowerCase(Locale.ROOT);
+        if (arg.isEmpty() || arg.equals("on")) {
+          lockOn = true;
+          matched = true;
+        } else if (arg.equals("off")) {
+          lockOn = false;
+          matched = true;
+        }
       }
 
       if (matched) {
@@ -938,7 +959,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         lineHeight,
         clearBefore,
         boardWidth,
-        boardHeight);
+        boardHeight,
+        lockOn);
   }
 
   private Integer parseFirstInt(String token) {
@@ -1630,6 +1652,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       group = createBoardFromFrame(player, frame, payload.boardWidth, payload.boardHeight, true);
     }
     if (group == null) return false;
+    if (payload.lockOverride != null) {
+      applyGroupLock(group, payload.lockOverride);
+    }
 
     if (payload.clearBefore) {
       int cleared = clearGroupTexts(group);
@@ -1911,6 +1936,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     final boolean clearBefore;
     final Integer boardWidth;
     final Integer boardHeight;
+    final Boolean lockOn;
 
     BookDirectives(
         String content,
@@ -1921,7 +1947,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Integer lineHeight,
         boolean clearBefore,
         Integer boardWidth,
-        Integer boardHeight) {
+        Integer boardHeight,
+        Boolean lockOn) {
       this.content = content;
       this.size = size;
       this.color = color;
@@ -1931,6 +1958,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       this.clearBefore = clearBefore;
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
+      this.lockOn = lockOn;
     }
   }
 
@@ -1956,6 +1984,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     final boolean clearBefore;
     final Integer boardWidth;
     final Integer boardHeight;
+    final Boolean lockOverride;
     final boolean fromLectern;
     final double distanceSq;
 
@@ -1970,7 +1999,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Integer lineHeightOverride,
         boolean clearBefore,
         Integer boardWidth,
-        Integer boardHeight) {
+        Integer boardHeight,
+        Boolean lockOverride) {
       this(
           text,
           mode,
@@ -1983,6 +2013,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           clearBefore,
           boardWidth,
           boardHeight,
+          lockOverride,
           false,
           0.0);
     }
@@ -1999,6 +2030,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         boolean clearBefore,
         Integer boardWidth,
         Integer boardHeight,
+        Boolean lockOverride,
         boolean fromLectern,
         double distanceSq) {
       this.text = text;
@@ -2012,6 +2044,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       this.clearBefore = clearBefore;
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
+      this.lockOverride = lockOverride;
       this.fromLectern = fromLectern;
       this.distanceSq = distanceSq;
     }
@@ -2029,6 +2062,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           clearBefore,
           boardWidth,
           boardHeight,
+          lockOverride,
           true,
           distSq);
     }

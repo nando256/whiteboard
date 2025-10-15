@@ -34,11 +34,12 @@ Whiteboard lets players place a board on item frames and push book text onto it 
    * Book directives let you control setup without commands. Example first page:
 
      ```
-     [boardsize 7x4] [clear]
+     [boardsize 7x4] [clear] [lock off]
      [text 18] Hello Whiteboard!
      ```
 
      `boardsize` creates (or resets) a board using the frame you right-clicked as the top-left corner.
+     Add `lock off` to leave the board unlocked; omit it or use `lock on` to keep protection enabled.
 
 ### Commands
 
