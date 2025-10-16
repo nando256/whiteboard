@@ -70,6 +70,10 @@ Whiteboard lets players place a board on item frames and push book text onto it 
 # JAR: build/libs/Whiteboard-<version>.jar
 ```
 
+## Localization(i18n)
+Language files live in `src/main/resources/lang/`.
+If your language isn’t available, please add a new file (e.g. `de_de.yml`) and open a PR.
+
 ## Troubleshooting
 
 * **Nothing renders:** check permissions and console; ensure you’re right-clicking while holding a written book.
