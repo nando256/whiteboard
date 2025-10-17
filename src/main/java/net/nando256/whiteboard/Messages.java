@@ -73,6 +73,21 @@ final class Messages {
           entry("redo.done", "&aRedid the previous undo."),
           entry("cmd.lock.usage", "&e/whiteboard lock <on|off>"),
           entry("lock.state", "&aLock set to {0}."),
+          entry("password.set", "&aSet board password."),
+          entry("password.changed", "&aUpdated board password."),
+          entry("password.cleared", "&aRemoved board password."),
+          entry(
+              "password.required",
+              "&cBoard is locked with a password. Include [pass <password>] in the book."),
+          entry("password.mismatch", "&cPassword mismatch."),
+          entry(
+              "password.locked",
+              "&cBoard is locked with a password. Use a book with [pass <password>] to edit."),
+          entry(
+              "destroy.denied",
+              "&cYou must be OP or have whiteboard.admin to destroy a board."),
+          entry("destroy.done", "&aRemoved the board ({0} frames)."),
+          entry("destroy.none", "&eNo frames were removed."),
           entry("usage.font", "&e/whiteboard font <family> [PLAIN|BOLD|ITALIC]"),
           entry("font.warn", "&eWarning: \"{0}\" might not exist on this server."),
           entry("font.changed", "&aBase font changed to \"{0}\"."),

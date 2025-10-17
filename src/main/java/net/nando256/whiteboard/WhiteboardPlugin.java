@@ -46,11 +46,9 @@ import org.bukkit.util.Vector;
  *  - /whiteboard grid <WxH>
  *  - /whiteboard bg <#RRGGBB> / clear / reset
  *  - /whiteboard text <msg> [size] [#RRGGBB]
- *  - /whiteboard gtext <msg> <size> <#RRGGBB> <x> <y>
- *  - /whiteboard gtextw <msg> <size> <#RRGGBB> <x> <y> [lineH]
- *  - /whiteboard gbg <#RRGGBB> / gclear
- *  - /whiteboard gundo / gredo
- *  - /whiteboard glock <on|off>   ← 殴り・回転などを禁止/許可
+ *  - /whiteboard htext <msg> [size] [#RRGGBB]
+ *  - /whiteboard undo / redo
+ *  - /whiteboard lock <on|off>   ← 殴り・回転などを禁止/許可
  *  - /whiteboard gdestroy         ← グループごと破壊（コマンド専用）
  *  - /whiteboard font <family> [style] / fontfile <file> [style]
  * ========================================================= */
@@ -163,6 +161,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           return handleRedoCommand(p);
         case "lock":
           return handleLockCommand(p, Arrays.copyOfRange(args, 1, args.length));
+        case "gdestroy":
+          return handleDestroyCommand(p);
         case "font":
           return handleFontCommand(p, Arrays.copyOfRange(args, 1, args.length));
         case "help":
@@ -333,6 +333,11 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
 
+    if (!fromBook && isPasswordProtected(group)) {
+      messages.send(p, "password.locked");
+      return true;
+    }
+
     if (fromBook) {
       ParsedBookCommand parsed = parseBookArguments(subArgs, htmlMode);
       if (!parsed.extraTokens.isEmpty()) {
@@ -341,6 +346,10 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
       BookPayload payload = readBookPayload(p);
       if (payload == null) return true;
+
+      if (!handlePasswordDirectives(p, group, payload.providedPassword, payload.newPassword)) {
+        return true;
+      }
 
       RenderMode mode =
           payload.explicitMode ? payload.mode : RenderMode.HTML; // default to HTML when unspecified
@@ -467,6 +476,10 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     }
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
+    if (isPasswordProtected(group)) {
+      messages.send(p, "password.locked");
+      return true;
+    }
 
     Color color = parseHtmlColor(subArgs[0], Color.WHITE);
     int count = 0;
@@ -486,6 +499,10 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   private boolean handleClearCommand(Player p) {
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
+    if (isPasswordProtected(group)) {
+      messages.send(p, "password.locked");
+      return true;
+    }
     int cleared = clearGroupTexts(group);
     messages.send(p, "board.cleared", cleared);
     return true;
@@ -494,6 +511,10 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   private boolean handleUndoCommand(Player p) {
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
+    if (isPasswordProtected(group)) {
+      messages.send(p, "password.locked");
+      return true;
+    }
     if (group.undo.isEmpty()) {
       messages.send(p, "undo.none");
       return true;
@@ -509,6 +530,10 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   private boolean handleRedoCommand(Player p) {
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
+    if (isPasswordProtected(group)) {
+      messages.send(p, "password.locked");
+      return true;
+    }
     if (group.redo.isEmpty()) {
       messages.send(p, "redo.none");
       return true;
@@ -562,11 +587,190 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
+    if (isPasswordProtected(group)) {
+      messages.send(p, "password.locked");
+      return true;
+    }
 
     boolean on = subArgs[0].equalsIgnoreCase("on");
     applyGroupLock(group, on);
     messages.send(p, "lock.state", on ? "ON" : "OFF");
     return true;
+  }
+
+  private boolean handleDestroyCommand(Player p) {
+    if (!hasAdminPrivilege(p)) {
+      messages.send(p, "destroy.denied");
+      return true;
+    }
+    BoardGroup group = requireGroupBySight(p);
+    if (group == null) return true;
+    int removed = destroyBoardGroup(group);
+    if (removed > 0) {
+      messages.send(p, "destroy.done", removed);
+    } else {
+      messages.send(p, "destroy.none");
+    }
+    return true;
+  }
+
+  private boolean hasAdminPrivilege(Player p) {
+    return p.isOp() || p.hasPermission("whiteboard.admin");
+  }
+
+  private boolean hasPassword(BoardGroup group) {
+    return group != null && group.password != null && !group.password.isEmpty();
+  }
+
+  private boolean isPasswordProtected(BoardGroup group) {
+    return group != null && group.locked && hasPassword(group);
+  }
+
+  private String normalizePasswordToken(String token) {
+    if (token == null) return null;
+    String trimmed = token.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+  }
+
+  private boolean isPasswordClearToken(String token) {
+    if (token == null) return false;
+    String lower = token.toLowerCase(Locale.ROOT);
+    return lower.equals("clear")
+        || lower.equals("off")
+        || lower.equals("none")
+        || lower.equals("remove")
+        || lower.equals("reset");
+  }
+
+  private boolean handlePasswordDirectives(
+      Player player, BoardGroup group, String providedToken, String requestedToken) {
+    if (group == null) return false;
+
+    String provided = normalizePasswordToken(providedToken);
+    String requested = normalizePasswordToken(requestedToken);
+    String current = group.password;
+    boolean hasCurrent = hasPassword(group);
+
+    if (!hasCurrent) {
+      String candidate = requested != null ? requested : provided;
+      if (candidate != null) {
+        if (isPasswordClearToken(candidate)) {
+          group.password = null;
+          messages.send(player, "password.cleared");
+        } else {
+          group.password = candidate;
+          messages.send(player, "password.set");
+        }
+      }
+      return true;
+    }
+
+    if (group.locked) {
+      if (provided == null) {
+        messages.send(player, "password.required");
+        return false;
+      }
+      if (!current.equals(provided)) {
+        messages.send(player, "password.mismatch");
+        return false;
+      }
+    } else {
+      if (requested != null || (provided != null && isPasswordClearToken(provided))) {
+        if (provided == null || !current.equals(provided)) {
+          messages.send(player, "password.mismatch");
+          return false;
+        }
+      } else if (provided != null && !current.equals(provided)) {
+        messages.send(player, "password.mismatch");
+        return false;
+      }
+    }
+
+    if (requested != null) {
+      if (isPasswordClearToken(requested)) {
+        if (hasCurrent) {
+          group.password = null;
+          messages.send(player, "password.cleared");
+        }
+      } else if (!current.equals(requested)) {
+        group.password = requested;
+        messages.send(player, "password.changed");
+      }
+      return true;
+    }
+
+    if (!group.locked && provided != null && isPasswordClearToken(provided)) {
+      if (hasCurrent) {
+        group.password = null;
+        messages.send(player, "password.cleared");
+      }
+    }
+
+    return true;
+  }
+
+  private int destroyBoardGroup(BoardGroup group) {
+    if (group == null) return 0;
+
+    groups.remove(group.id);
+    int removed = 0;
+
+    for (int y = 0; y < group.H; y++) {
+      for (int x = 0; x < group.W; x++) {
+        UUID frameId = group.frames[y][x];
+        group.tiles[y][x] = null;
+        group.centers[y][x] = null;
+        group.frames[y][x] = null;
+        if (frameId == null) continue;
+
+        protectedFrames.remove(frameId);
+        frameToGroup.remove(frameId);
+
+        Entity entity = Bukkit.getEntity(frameId);
+        if (entity instanceof ItemFrame frame) {
+          ItemStack item = frame.getItem();
+          if (item != null && item.getType() == Material.FILLED_MAP) {
+            MapMeta meta = (MapMeta) item.getItemMeta();
+            MapView view = meta.getMapView();
+            if (view != null) {
+              mapToGroup.remove(view.getId());
+              boards.remove(view.getId());
+              List<MapRenderer> renderers = new ArrayList<>(view.getRenderers());
+              for (MapRenderer renderer : renderers) {
+                if (renderer instanceof WhiteboardRenderer) {
+                  view.removeRenderer(renderer);
+                }
+              }
+            }
+          }
+          if (item != null && item.getType() == Material.FILLED_MAP) {
+          frame.setItem(null); // drop the map for players to pick up
+        } else {
+          frame.setItem(null, false);
+        }
+        frame.setFixed(false);
+        frame.setRotation(Rotation.NONE);
+        removed++;
+      }
+    }
+  }
+
+    mapToGroup
+        .entrySet()
+        .removeIf(
+            entry -> {
+              if (group.id.equals(entry.getValue())) {
+                boards.remove(entry.getKey());
+                return true;
+              }
+              return false;
+            });
+
+  group.undo.clear();
+  group.redo.clear();
+  group.password = null;
+
+  return removed;
   }
 
   private boolean handleFontCommand(Player p, String[] subArgs) {
@@ -577,6 +781,10 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
 
     BoardGroup group = requireGroupBySight(p);
     if (group == null) return true;
+    if (isPasswordProtected(group)) {
+      messages.send(p, "password.locked");
+      return true;
+    }
 
     String family = subArgs[0];
     int style = parseFontStyle(subArgs.length >= 2 ? subArgs[1] : "PLAIN");
@@ -791,7 +999,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         directives.clearBefore,
         directives.boardWidth,
         directives.boardHeight,
-        directives.lockOn);
+        directives.lockOn,
+        directives.providedPassword,
+        directives.newPassword);
   }
 
   private List<String> collectBookPages(BookMeta meta) {
@@ -863,7 +1073,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
   }
 
   private BookDirectives parseBookDirectives(String content) {
-    if (content == null) return new BookDirectives("", null, null, null, null, null, false, null, null, null);
+    if (content == null)
+      return new BookDirectives("", null, null, null, null, null, false, null, null, null, null, null);
     String working = content.stripLeading();
     Integer size = null;
     Color color = null;
@@ -874,6 +1085,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     Integer boardWidth = null;
     Integer boardHeight = null;
     Boolean lockOn = null;
+    String providedPassword = null;
+    String newPassword = null;
 
     while (true) {
       String trimmed = working.stripLeading();
@@ -928,6 +1141,20 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           boardHeight = Math.max(1, dims[1]);
           matched = true;
         }
+      } else if (lower.startsWith("password")) {
+        String value = extractDirectiveValue(token, "password");
+        if (value != null) {
+          newPassword = value;
+          matched = true;
+        }
+      } else if (lower.startsWith("pass")) {
+        String value = extractDirectiveValue(token, "pass");
+        if (value != null) {
+          if (providedPassword == null) {
+            providedPassword = value;
+          }
+          matched = true;
+        }
       } else if (lower.startsWith("lock")) {
         String arg = token.replaceFirst("(?i)lock", "").trim().toLowerCase(Locale.ROOT);
         if (arg.isEmpty() || arg.equals("on")) {
@@ -955,7 +1182,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         clearBefore,
         boardWidth,
         boardHeight,
-        lockOn);
+        lockOn,
+        providedPassword,
+        newPassword);
   }
 
   private Integer parseFirstInt(String token) {
@@ -1005,6 +1234,20 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       return null;
     }
     return new Integer[] {w, h};
+  }
+
+  private String extractDirectiveValue(String token, String keyword) {
+    if (token == null || keyword == null) return null;
+    String remainder = token.replaceFirst("(?i)^" + keyword, "").trim();
+    while (!remainder.isEmpty()) {
+      char ch = remainder.charAt(0);
+      if (ch == '=' || ch == ':' || ch == ',') {
+        remainder = remainder.substring(1).trim();
+        continue;
+      }
+      break;
+    }
+    return remainder.isEmpty() ? null : remainder;
   }
 
   private ParsedBookCommand parseBookArguments(String[] subArgs, boolean htmlMode) {
@@ -1647,6 +1890,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       group = createBoardFromFrame(player, frame, payload.boardWidth, payload.boardHeight, true);
     }
     if (group == null) return false;
+    if (!handlePasswordDirectives(player, group, payload.providedPassword, payload.newPassword)) {
+      return true;
+    }
     if (payload.lockOverride != null) {
       applyGroupLock(group, payload.lockOverride);
     }
@@ -1932,6 +2178,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     final Integer boardWidth;
     final Integer boardHeight;
     final Boolean lockOn;
+    final String providedPassword;
+    final String newPassword;
 
     BookDirectives(
         String content,
@@ -1943,7 +2191,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         boolean clearBefore,
         Integer boardWidth,
         Integer boardHeight,
-        Boolean lockOn) {
+        Boolean lockOn,
+        String providedPassword,
+        String newPassword) {
       this.content = content;
       this.size = size;
       this.color = color;
@@ -1954,6 +2204,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
       this.lockOn = lockOn;
+      this.providedPassword = providedPassword;
+      this.newPassword = newPassword;
     }
   }
 
@@ -1980,6 +2232,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     final Integer boardWidth;
     final Integer boardHeight;
     final Boolean lockOverride;
+    final String providedPassword;
+    final String newPassword;
     final boolean fromLectern;
     final double distanceSq;
 
@@ -1995,7 +2249,9 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         boolean clearBefore,
         Integer boardWidth,
         Integer boardHeight,
-        Boolean lockOverride) {
+        Boolean lockOverride,
+        String providedPassword,
+        String newPassword) {
       this(
           text,
           mode,
@@ -2009,6 +2265,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           boardWidth,
           boardHeight,
           lockOverride,
+          providedPassword,
+          newPassword,
           false,
           0.0);
     }
@@ -2026,6 +2284,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
         Integer boardWidth,
         Integer boardHeight,
         Boolean lockOverride,
+        String providedPassword,
+        String newPassword,
         boolean fromLectern,
         double distanceSq) {
       this.text = text;
@@ -2040,6 +2300,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
       this.boardWidth = boardWidth;
       this.boardHeight = boardHeight;
       this.lockOverride = lockOverride;
+      this.providedPassword = providedPassword;
+      this.newPassword = newPassword;
       this.fromLectern = fromLectern;
       this.distanceSq = distanceSq;
     }
@@ -2058,6 +2320,8 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
           boardWidth,
           boardHeight,
           lockOverride,
+          providedPassword,
+          newPassword,
           true,
           distSq);
     }
@@ -2206,6 +2470,7 @@ public final class WhiteboardPlugin extends JavaPlugin implements Listener {
     Location baseTopLeft;
     Vector rightUnit, downUnit;
     boolean locked = true;
+    String password;
 
     final Deque<TextAction> undo = new ArrayDeque<>();
     final Deque<TextAction> redo = new ArrayDeque<>();

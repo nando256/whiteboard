@@ -42,13 +42,22 @@ Whiteboard lets players place a board on item frames and push book text onto it 
      | `[pos X Y]`         | Offset drawing position. `[xy …]` / `[offset …]` also work.         |
      | `[color #RRGGBB]`   | Change text colour (CSS names or hex).                              |
      | `[clear]`           | Clear existing text before applying the book.                       |
+     | `[pass secret]`     | Provide the current password so a locked board accepts the book.    |
+     | `[password new]`    | Set or change the board password; use `off` / `clear` / `none`.     |
 
      Example first page:
 
      ```
-     [boardsize 7x4] [lock off] [clear]
-     [size 18] [color #ffaa00] Hello Whiteboard!
+     [boardsize 7x4] [password classroom123] [lock on]
+     [size 18] [color #ffaa00] Welcome to class!
      ```
+
+### Password Protection
+
+- Combine `[password <value>]` with `[lock on]` to require that password for future edits.
+- When a board is locked with a password, draw/clear commands are blocked until a book supplies `[pass <currentPassword>]`.
+- To change or remove the password, include both `[pass <current>]` and either `[password <new>]` or `[password off]` in the same book.
+- Server operators (or players with `whiteboard.admin`) can force-remove a board with `/wb gdestroy` while looking at it—handy if the password is lost.
 
 ### Commands
 
@@ -61,6 +70,7 @@ Whiteboard lets players place a board on item frames and push book text onto it 
 /wb clear
 /wb undo
 /wb redo
+/wb gdestroy              # OP only: delete the board you are looking at
 ```
 
 ## Build (dev)
